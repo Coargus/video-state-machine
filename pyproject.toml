@@ -23,7 +23,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "sympy==1.12"
+    "sympy==1.12",
     "cog_cv_abstraction@git+https://github.com/Coargus/computer-vision-model-abstraction.git@v0.0.4-dev",
 ]
 

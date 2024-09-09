@@ -125,7 +125,7 @@ class SafetyADMC(VideoModel):
 
         return satisfying_assignments
 
-    def add_frame_to_automaton(self, frame: Frame) -> None:
+    def add_frame(self, frame: Frame) -> None:
         """Add frame to automaton."""
         if (
             self.previous_states
@@ -299,8 +299,7 @@ class SafetyADMC(VideoModel):
     def check_automaton(self):
         if self.probability_of_safety > self.safety_threshold:
             return True
-        else:
-            return False
+        return False
 
     @property
     def probability_of_safety(self):

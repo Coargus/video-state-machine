@@ -63,7 +63,7 @@ class VideoState:
         self.frame_index = frame_index
         self.label = target_label  # TTT, TFT, FTT, etc.
         self.descriptive_label = self._get_descriptive_label(label=target_label)
-        self.probability = 1
+        self.probability = 1.0
 
     def compute_probability(self, probabilities: list[list[float]]) -> None:
         """Compute probability of the state given the probabilities of the propositions.
@@ -73,7 +73,7 @@ class VideoState:
                 e.g. two propositions with three frames
                 -> [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]].
         """  # noqa: E501
-        probability = 1
+        probability = 1.0
         for i in range(len(self.label)):
             if self.label[i] == "T":
                 probability *= probabilities[i][self.frame_index]
