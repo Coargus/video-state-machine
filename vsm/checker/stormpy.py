@@ -112,6 +112,10 @@ class StormModelChecker:
         elif model_type == "dtmc":
             properties = stormpy.parse_properties(self.ltl_formula)
             result = stormpy.model_checking(model, properties[0])
+
+        if is_filter:
+            filtered_result = stormpy.create_filter_initial_states_sparse(model)
+            result.filter(filtered_result)
         return result
 
     def _verification_result_eval(
@@ -156,10 +160,6 @@ class StormModelChecker:
 
         # Get Result and Filter it
         result = stormpy.model_checking(model, properties[0])
-
-        if is_filter:
-            filter = stormpy.create_filter_initial_states_sparse(model)
-            result.filter(filter)
 
         return result
 
