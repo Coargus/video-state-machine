@@ -1,22 +1,22 @@
 import logging
+import math
 
 import numpy as np
 import stormpy
 import stormpy.examples.files
 from stormpy.core import ExplicitQualitativeCheckResult
 
+from vsm.processor.proposition import process_proposition_set
 from vsm.state.video_state import VideoState
 
 
 class StormModelChecker:
-    """Model checker using Storm for verifying properties."""
+    """Model Checker using Stormpy for verifying properties."""
 
     def __init__(
         self,
         proposition_set: list[str],
         ltl_formula: str,
-        verbose: bool = False,
-        is_filter: bool = False,
     ) -> None:
         """Initialize the StormModelChecker.
 
@@ -26,17 +26,14 @@ class StormModelChecker:
             verbose: Enable verbose output.
             is_filter: Apply filtering to results.
         """
-        self.proposition_set = proposition_set
+        self.proposition_set = process_proposition_set(proposition_set)
         self.ltl_formula = ltl_formula
-        self.is_filter = is_filter
-        self.verbose = verbose
 
     def create_model(
         self,
         transitions: list[tuple[int, int, float]],
         states: list[VideoState],
-        model_type: str = "ma",
-        verbose: bool = False,
+        model_type: str = "sparse_ma",
     ) -> any:
         """Create model.
 
@@ -63,12 +60,12 @@ class StormModelChecker:
             transition_matrix=transition_matrix,
             state_labeling=state_labeling,
         )
-        if model_type == "ma":
+        if model_type == "sparse_ma":
             markovian_states = stormpy.BitVector(
                 len(states), list(range(len(states)))
             )
             components.markovian_states = markovian_states
-            components.exit_rates = [0.0 for _ in range(len(states))]
+            components.exit_rates = [1.0 for _ in range(len(states))]
             model = stormpy.SparseMA(components)
         elif model_type == "dtmc":
             model = stormpy.storage.SparseDtmc(components)
@@ -77,19 +74,14 @@ class StormModelChecker:
         else:
             msg = f"Unsupported model type: {model_type}"
             raise ValueError(msg)
-
-        if verbose:
-            print(transition_matrix)  # noqa: T201
-            print(model)  # noqa: T201
         return model
 
     def check_automaton(
         self,
         transitions: list[tuple[int, int, float]],
         states: list[VideoState],
-        verbose: bool = False,
-        model_type: str = "ma",
-        is_filter: bool = False,
+        model_type: str = "sparse_ma",
+        use_filter: bool = False,
     ) -> any:
         """Check automaton.
 
@@ -97,71 +89,49 @@ class StormModelChecker:
             transitions: List of transitions.
             states: List of states.
             verbose: Enable verbose output.
-            is_filter: Apply filtering to results.
+            use_filter: Apply filtering to results.
         """
         model = self.create_model(
             transitions=transitions,
             states=states,
             model_type=model_type,
-            verbose=verbose,
         )
-        # Check the model (Markov Automata)
-        if model_type == "ma":
-            result = self._model_checking(model, self.ltl_formula, is_filter)
-            # return self._verification_result_eval(verification_result=result)  # noqa: ERA001
-        elif model_type == "dtmc":
-            properties = stormpy.parse_properties(self.ltl_formula)
-            result = stormpy.model_checking(model, properties[0])
-
-        if is_filter:
-            filtered_result = stormpy.create_filter_initial_states_sparse(model)
-            result.filter(filtered_result)
-        return result
-
-    def _verification_result_eval(
-        self, verification_result: ExplicitQualitativeCheckResult
-    ) -> bool:
-        # string result is "true" when is absolutely true
-        # but it returns "true, false" when we have some true and false
-        verification_result_str = str(verification_result)
-        string_result = verification_result_str.split("{")[-1].split("}")[0]
-        if len(string_result) == 4:
-            if string_result[0] == "t":  # 0,6
-                result = True
-        elif len(string_result) > 5:
-            # "true, false" -> some true and some false
-            result = True
-        else:
-            result = False
-        return result
-
-    def _model_checking(
-        self,
-        model: stormpy.storage.SparseMA,
-        formula_str: str,
-        is_filter: bool = False,
-    ) -> any:
-        """Model checking.
-
-        Args:
-            model: Markov Automata.
-            formula_str: Formula string.
-            is_filter: Apply filtering to results.
-
-        Returns:
-            any: Result.
-        """
+        # Check the model
         # Initialize Prism Program
         path = stormpy.examples.files.prism_dtmc_die  #  prism_mdp_maze
         prism_program = stormpy.parse_prism_program(path)
 
         # Define Properties
-        properties = stormpy.parse_properties(formula_str, prism_program)
+        properties = stormpy.parse_properties(self.ltl_formula, prism_program)
 
         # Get Result and Filter it
         result = stormpy.model_checking(model, properties[0])
 
+        if use_filter:
+            # The final result will only consider paths starting from the initial states of the automaton.  # noqa: E501
+            filtered_result = stormpy.create_filter_initial_states_sparse(model)
+            result.filter(filtered_result)
         return result
+
+    def qualitative_result_eval(
+        self, verification_result: ExplicitQualitativeCheckResult
+    ) -> bool:
+        if isinstance(verification_result, ExplicitQualitativeCheckResult):
+            # string result is "true" when is absolutely true
+            # but it returns "true, false" when we have some true and false
+            verification_result_str = str(verification_result)
+            string_result = verification_result_str.split("{")[-1].split("}")[0]
+            if len(string_result) == 4:
+                if string_result[0] == "t":  # 0,6
+                    result = True
+            elif len(string_result) > 5:
+                # "true, false" -> some true and some false
+                result = True
+            else:
+                result = False
+            return result
+        msg = "Model Checking is not qualitative"
+        raise ValueError(msg)
 
     def _build_trans_matrix(
         self,
@@ -176,6 +146,10 @@ class StormModelChecker:
             states: List of states.
             model_type: Type of model ("nondeterministic" or "deterministic").
         """
+        if model_type not in ["nondeterministic", "deterministic"]:
+            msg = "Invalid model_type. Must be 'nondeterministic' or 'deterministic'"  # noqa: E501
+            raise ValueError(msg)
+
         if model_type == "nondeterministic":
             matrix = np.zeros((len(states), len(states)))
             for t in transitions:
@@ -187,28 +161,31 @@ class StormModelChecker:
         elif model_type == "deterministic":
             num_states = len(states)
             builder = stormpy.SparseMatrixBuilder(
-                rows=len(states),
-                columns=len(states),
+                rows=num_states,
+                columns=num_states,
                 entries=len(transitions),
                 force_dimensions=False,
             )
-            # Create a set of all states that have outgoing transitions
             states_with_transitions = set(src for src, _, _ in transitions)
+            outgoing_probs = {i: 0.0 for i in range(num_states)}
 
             for src, dest, prob in transitions:
                 builder.add_next_value(src, dest, prob)
+                outgoing_probs[src] += prob
 
-            # Add self-loops for states with no outgoing transitions
             for state in range(num_states):
                 if state not in states_with_transitions:
                     builder.add_next_value(state, state, 1.0)
+                    outgoing_probs[state] = 1.0
 
-            # Print debugging information
-            logging.debug(f"Number of states: {num_states}")
-            logging.debug(f"Number of transitions: {len(transitions)}")
-            logging.debug(
-                f"States with transitions: {sorted(states_with_transitions)}"
-            )
+            # Check probabilities
+            for state, prob_sum in outgoing_probs.items():
+                if not math.isclose(prob_sum, 1.0, rel_tol=1e-9):
+                    logging.warning(
+                        f"State {state} has outgoing probability sum of {prob_sum}, not 1.0"
+                    )
+
+            # ... (existing logging code) ...
             trans_matrix = builder.build()
         return trans_matrix
 
@@ -229,24 +206,37 @@ class StormModelChecker:
         Returns:
             stormpy.storage.StateLabeling: State labeling.
         """
+        state_labeling = stormpy.storage.StateLabeling(len(states))
+        state_labeling.add_label("init")
+        state_labeling.add_label("terminal")
+        for label in props:
+            state_labeling.add_label(label)
+
         if model_type == "nondeterministic":
-            state_labeling = stormpy.storage.StateLabeling(len(states))
-            state_labeling.add_label("init")
-
-            for label in props:
-                state_labeling.add_label(label)
-
             for state in states:
                 for label in state.descriptive_label:
                     state_labeling.add_label_to_state(label, state.state_index)
         else:
-            state_labeling = stormpy.storage.StateLabeling(len(states))
-
-            for prop in props:
-                state_labeling.add_label(prop)
-
             for i, state in enumerate(states):
                 for prop in state.props:
                     if prop in props:
                         state_labeling.add_label_to_state(prop, i)
         return state_labeling
+
+    def validate_tl_specification(self, ltl_formula: str) -> bool:
+        """Validate LTL specification.
+
+        Args:
+            ltl_formula: LTL formula to validate.
+        """
+        path = stormpy.examples.files.prism_dtmc_die  #  prism_mdp_maze
+        prism_program = stormpy.parse_prism_program(path)
+        # Define Properties
+        try:
+            stormpy.parse_properties(ltl_formula, prism_program)
+        except Exception as e:
+            msg = f"Error validating LTL specification: {e}"
+            logging.exception(msg)
+            return False
+        else:
+            return True

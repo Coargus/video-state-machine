@@ -1,5 +1,6 @@
 from cog_cv_abstraction.schema.video_frame import VideoFrame
 
+from vsm.processor.proposition import process_proposition_set
 from vsm.state.video_state import VideoState
 
 from ._base import VideoModel
@@ -24,7 +25,7 @@ class VideoAutomaton(VideoModel):
 
     def set_up(self, proposition_set: list[str]) -> None:
         """Set up the MarkovAutomaton."""
-        self.proposition_set = proposition_set
+        self.proposition_set = process_proposition_set(proposition_set)
         self.label_combinations = self._create_label_combinations(
             len(proposition_set)
         )
@@ -83,29 +84,47 @@ class VideoAutomaton(VideoModel):
                         cur_state.probability,
                     )
                     self.transitions.append(transition)
-        else:
-            # No init state, so add transitions from current states to current states
-            for cur_state in current_states:
-                transition = (
-                    cur_state.state_index,
-                    cur_state.state_index,
-                    cur_state.probability,
-                )
-                self.transitions.append(transition)
 
         self.previous_states = (
             current_states if current_states else self.previous_states
         )
         self.frame_index_in_automaton += 1
 
+    def add_terminal_state(self, add_with_terminal_label: bool = False) -> None:
+        """Add terminal state to the automaton."""
+        if add_with_terminal_label:
+            terminal_state_index = len(self.states)
+            terminal_state = VideoState(
+                state_index=terminal_state_index,
+                frame_index=self.frame_index_in_automaton,
+                label="terminal",
+                proposition_set=self.proposition_set,
+            )
+            self.states.append(terminal_state)
+            self._current_state = terminal_state
+
+            self.transitions.extend(
+                (prev_state.state_index, terminal_state_index, 1.0)
+                for prev_state in self.previous_states
+            )
+            self.transitions.append(
+                (terminal_state_index, terminal_state_index, 1.0)
+            )
+        else:
+            self.transitions.extend(
+                (prev_state.state_index, prev_state.state_index, 1.0)
+                for prev_state in self.previous_states
+            )
+
     def _get_probability_of_propositions(self, frame: VideoFrame) -> None:
         """Update the probability of propositions."""
         for i, prop in enumerate(self.proposition_set):
+            prop = prop.replace("_", " ")
             if frame.object_of_interest.get(prop):
                 probability = frame.object_of_interest[prop].get_probability()
             else:
                 probability = 0.0
-            self.probability_of_propositions[i].append(probability)
+            self.probability_of_propositions[i].append(round(probability, 2))
 
     def _create_label_combinations(self, num_props: int) -> list[str]:
         """Create all possible combinations of T and F for the number of propositions.
