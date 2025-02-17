@@ -3,7 +3,7 @@ import pytest
 from vsm.state.video_state import VideoState
 
 
-@pytest.fixture()
+@pytest.fixture
 def init_state():
     return VideoState(
         state_index=0,

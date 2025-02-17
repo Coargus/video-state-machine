@@ -240,3 +240,4 @@ class StormModelChecker:
             return False
         else:
             return True
+
